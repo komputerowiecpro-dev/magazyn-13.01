@@ -1,71 +1,69 @@
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-from sqlalchemy import create_engine, Column, Integer, String, Numeric, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-from decimal import Decimal
+import sqlite3
 
-# --- KONFIGURACJA MODELI BAZY DANYCH ---
-Base = declarative_base()
+# Połączenie z bazą danych
+def get_connection():
+    conn = sqlite3.connect('database.db')
+    return conn
 
-class Kategoria(Base):
-    __tablename__ = 'kategorie'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nazwa = Column(String, nullable=False)
-    opis = Column(String)
-    produkty = relationship("Produkt", back_populates="kategoria_rel", cascade="all, delete-orphan")
+# Inicjalizacja tabel (zgodnie ze schematem na obrazku)
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
+    # Tabela kategorie
+    c.execute('''CREATE TABLE IF NOT EXISTS kategorie (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nazwa TEXT NOT NULL,
+                    opis TEXT)''')
+    # Tabela produkty
+    c.execute('''CREATE TABLE IF NOT EXISTS produkty (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nazwa TEXT NOT NULL,
+                    liczba INTEGER,
+                    cena NUMERIC,
+                    kategoria_id INTEGER,
+                    FOREIGN KEY (kategoria_id) REFERENCES kategorie(id))''')
+    conn.commit()
+    conn.close()
 
-class Dostawca(Base):
-    __tablename__ = 'dostawcy'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nazwa = Column(String, nullable=False, unique=True)
-    produkty = relationship("Produkt", back_populates="dostawca_rel")
+init_db()
 
-class Produkt(Base):
-    __tablename__ = 'produkty'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nazwa = Column(String, nullable=False)
-    liczba = Column(Integer, default=0)
-    cena = Column(Numeric(10, 2))
-    kategoria_id = Column(Integer, ForeignKey('kategorie.id'))
-    dostawca_id = Column(Integer, ForeignKey('dostawcy.id'))
-    
-    kategoria_rel = relationship("Kategoria", back_populates="produkty")
-    dostawca_rel = relationship("Dostawca", back_populates="produkty")
+st.title("Zarządzanie Kategoriami Produktów")
 
-# --- POŁĄCZENIE Z BAZĄ ---
-# check_same_thread=False jest kluczowe dla stabilności Streamlit + SQLite
-engine = create_engine('sqlite:///magazyn.db', connect_args={"check_same_thread": False})
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
-db = Session()
+# --- SEKCJA DODAWANIA ---
+st.header("Dodaj nową kategorię")
+with st.form("form_dodaj"):
+    nowa_nazwa = st.text_input("Nazwa kategorii")
+    nowy_opis = st.text_area("Opis")
+    submit_button = st.form_submit_button("Dodaj")
 
-# --- USTAWIENIA STRONY ---
-st.set_page_config(page_title="Magazyn Pro v3", page_icon="🏢", layout="wide")
+    if submit_button and nowa_nazwa:
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO kategorie (nazwa, opis) VALUES (?, ?)", (nowa_nazwa, nowy_opis))
+        conn.commit()
+        conn.close()
+        st.success(f"Dodano kategorię: {nowa_nazwa}")
 
-# Stylizacja wizualna
-st.markdown("""
-    <style>
-    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    [data-testid="stSidebar"] { background-color: #f8f9fa; }
-    </style>
-""", unsafe_allow_html=True)
+# --- SEKCJA LISTY I USUWANIA ---
+st.header("Lista kategorii")
+conn = get_connection()
+c = conn.cursor()
+kategorie = c.execute("SELECT id, nazwa, opis FROM kategorie").fetchall()
+conn.close()
 
-st.title("🏢 System Zarządzania Magazynem")
-st.caption("Pełna kontrola nad asortymentem, dostawcami i finansami.")
-
-# --- SIDEBAR: WYSZUKIWARKA I FILTRY ---
-st.sidebar.header("🔍 Filtrowanie")
-search_query = st.sidebar.text_input("Szukaj produktu po nazwie...")
-
-# --- POBIERANIE DANYCH ---
-all_prods = db.query(Produkt).all()
-df = pd.DataFrame([{
-    "ID": p.id,
-    "Nazwa": p.nazwa,
-    "Cena": float(p.cena),
-    "Ilość": p.liczba,
-    "Kategoria": p.kategoria_rel.nazwa if p.kategoria_rel else "Brak",
-    "Dostawca": p.dostawca_rel.nazwa if p.dostawca_rel else "Brak",
-    "Wartość": float(p.cena * p.liczba)
+if kategorie:
+    for kat in kategorie:
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.write(f"**{kat[1]}** - {kat[2]}")
+        with col2:
+            if st.button("Usuń", key=f"del_{kat[0]}"):
+                conn = get_connection()
+                c = conn.cursor()
+                c.execute("DELETE FROM kategorie WHERE id = ?", (kat[0],))
+                conn.commit()
+                conn.close()
+                st.rerun()
+else:
+    st.info("Brak kategorii w bazie.")
