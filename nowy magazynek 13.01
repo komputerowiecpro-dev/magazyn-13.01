@@ -1,0 +1,72 @@
+import streamlit as st
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+
+# 1. Konfiguracja Bazy Danych
+Base = declarative_base()
+
+class Kategoria(Base):
+    __tablename__ = 'kategorie'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nazwa = Column(String, nullable=False)
+    opis = Column(String)
+    produkty = relationship("Produkt", back_populates="kategoria_rel", cascade="all, delete-orphan")
+
+class Produkt(Base):
+    __tablename__ = 'produkty'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nazwa = Column(String, nullable=False)
+    liczba = Column(Integer)
+    cena = Column(Numeric)
+    kategoria = Column(Integer, ForeignKey('kategorie.id'))
+    kategoria_rel = relationship("Kategoria", back_populates="produkty")
+
+# Połączenie (SQLite dla łatwego wdrożenia)
+engine = create_engine('sqlite:///magazyn.db', echo=False)
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# 2. Interfejs Streamlit
+st.title("📦 Zarządzanie Kategoriami")
+
+menu = ["Dodaj Kategorię", "Usuń Kategorię", "Lista Kategorii"]
+choice = st.sidebar.selectbox("Menu", menu)
+
+if choice == "Dodaj Kategorię":
+    st.subheader("Nowa Kategoria")
+    with st.form("form_add"):
+        nazwa = st.text_input("Nazwa Kategorii")
+        opis = st.text_area("Opis")
+        submit = st.form_submit_button("Zapisz")
+        
+        if submit and nazwa:
+            nowa_kat = Kategoria(nazwa=nazwa, opis=opis)
+            session.add(nowa_kat)
+            session.commit()
+            st.success(f"Dodano kategorię: {nazwa}")
+
+elif choice == "Usuń Kategorię":
+    st.subheader("Usuwanie Kategorii")
+    kategorie = session.query(Kategoria).all()
+    opcje = {k.nazwa: k.id for k in kategorie}
+    
+    if opcje:
+        wybrana = st.selectbox("Wybierz kategorię do usunięcia", list(opcje.keys()))
+        if st.button("⚠️ Usuń na zawsze"):
+            kat_do_usuniecia = session.query(Kategoria).get(opcje[wybrana])
+            session.delete(kat_do_usuniecia)
+            session.commit()
+            st.warning(f"Usunięto kategorię: {wybrana}")
+            st.rerun()
+    else:
+        st.info("Brak kategorii w bazie.")
+
+elif choice == "Lista Kategorii":
+    st.subheader("Wszystkie Kategorie")
+    kategorie = session.query(Kategoria).all()
+    for k in kategorie:
+        st.write(f"**{k.nazwa}** (ID: {k.id})")
+        st.caption(f"Opis: {k.opis}")
+        st.divider()
