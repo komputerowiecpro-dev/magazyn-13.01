@@ -165,6 +165,7 @@ elif choice == "Zarządzaj Kategoriami":
         session.commit()
         st.rerun()
 
+
 import streamlit as st
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
@@ -235,6 +236,41 @@ if choice == "Dodaj Produkt":
             wybrany_dostawca = st.selectbox("Dostawca (Kurier)", list(dost_opcje.keys()))
             
             if st.form_submit_button("Zatwierdź"):
-                nowy = Produkt
+                nowy = Produkt(
                     nazwa=nazwa,
-                    cena
+                    cena=Decimal(str(cena)),
+                    liczba=ilosc,
+                    kategoria_id=kat_opcje[wybrana_kat],
+                    dostawca_id=dost_opcje[wybrany_dostawca]
+                )
+                session.add(nowy)
+                session.commit()
+                st.success(f"Dodano: {nazwa} (Dostawca: {wybrany_dostawca})")
+
+elif choice == "Podgląd Magazynu":
+    st.subheader("📋 Lista produktów")
+    produkty = session.query(Produkt).all()
+    for p in produkty:
+        with st.expander(f"{p.nazwa} - {p.cena} PLN"):
+            st.write(f"**Dostawca:** {p.dostawca_rel.nazwa if p.dostawca_rel else 'Nie przypisano'}")
+            st.write(f"**Kategoria:** {p.kategoria_rel.nazwa if p.kategoria_rel else 'Brak'}")
+            st.write(f"**Stan:** {p.liczba} szt.")
+
+elif choice == "Konfiguracja (Kategorie/Dostawcy)":
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("### Zarządzaj Kategoriami")
+        nowa_kat = st.text_input("Nowa kategoria")
+        if st.button("Dodaj Kategorię"):
+            session.add(Kategoria(nazwa=nowa_kat))
+            session.commit()
+            st.rerun()
+
+    with col2:
+        st.write("### Zarządzaj Dostawcami")
+        nowy_dostawca = st.text_input("Nazwa kuriera (np. DHL, InPost)")
+        if st.button("Dodaj Dostawcę"):
+            session.add(Dostawca(nazwa=nowy_dostawca))
+            session.commit()
+            st.rerun()
