@@ -1,19 +1,20 @@
 import streamlit as st
+import pandas as pd
+import plotly.express as px
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from decimal import Decimal
 
+# --- KONFIGURACJA MODELI BAZY DANYCH ---
 Base = declarative_base()
-
-# --- MODELE BAZY DANYCH ---
 
 class Kategoria(Base):
     __tablename__ = 'kategorie'
     id = Column(Integer, primary_key=True, autoincrement=True)
     nazwa = Column(String, nullable=False)
     opis = Column(String)
-    produkty = relationship("Produkt", back_populates="kategoria_rel")
+    produkty = relationship("Produkt", back_populates="kategoria_rel", cascade="all, delete-orphan")
 
 class Dostawca(Base):
     __tablename__ = 'dostawcy'
@@ -33,76 +34,38 @@ class Produkt(Base):
     kategoria_rel = relationship("Kategoria", back_populates="produkty")
     dostawca_rel = relationship("Dostawca", back_populates="produkty")
 
-# Połączenie i inicjalizacja bazy
-engine = create_engine('sqlite:///magazyn.db')
+# --- POŁĄCZENIE Z BAZĄ ---
+# check_same_thread=False jest kluczowe dla stabilności Streamlit + SQLite
+engine = create_engine('sqlite:///magazyn.db', connect_args={"check_same_thread": False})
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
-session = Session()
+db = Session()
 
-# --- INTERFEJS STREAMLIT ---
+# --- USTAWIENIA STRONY ---
+st.set_page_config(page_title="Magazyn Pro v3", page_icon="🏢", layout="wide")
 
-st.title("📦 System Zarządzania Magazynem")
+# Stylizacja wizualna
+st.markdown("""
+    <style>
+    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    [data-testid="stSidebar"] { background-color: #f8f9fa; }
+    </style>
+""", unsafe_allow_html=True)
 
-menu = ["Podgląd Magazynu", "Dodaj Produkt", "Konfiguracja (Kategorie/Dostawcy)"]
-choice = st.sidebar.selectbox("Nawigacja", menu)
+st.title("🏢 System Zarządzania Magazynem")
+st.caption("Pełna kontrola nad asortymentem, dostawcami i finansami.")
 
-if choice == "Dodaj Produkt":
-    st.subheader("➕ Dodaj nowy przedmiot")
-    
-    kategorie = session.query(Kategoria).all()
-    dostawcy = session.query(Dostawca).all()
-    
-    if not kategorie or not dostawcy:
-        st.warning("⚠️ Skonfiguruj najpierw Kategorie i Dostawców w menu 'Konfiguracja'!")
-    else:
-        with st.form("form_produkt"):
-            nazwa = st.text_input("Nazwa produktu")
-            cena = st.number_input("Cena jednostkowa (PLN)", min_value=0.0, step=0.01)
-            ilosc = st.number_input("Ilość", min_value=1, step=1)
-            
-            # Wybór z bazy danych
-            kat_opcje = {k.nazwa: k.id for k in kategorie}
-            dost_opcje = {d.nazwa: d.id for d in dostawcy}
-            
-            wybrana_kat = st.selectbox("Kategoria", list(kat_opcje.keys()))
-            wybrany_dostawca = st.selectbox("Dostawca (Kurier)", list(dost_opcje.keys()))
-            
-            if st.form_submit_button("Zatwierdź"):
-                nowy = Produkt(
-                    nazwa=nazwa,
-                    cena=Decimal(str(cena)),
-                    liczba=ilosc,
-                    kategoria_id=kat_opcje[wybrana_kat],
-                    dostawca_id=dost_opcje[wybrany_dostawca]
-                )
-                session.add(nowy)
-                session.commit()
-                st.success(f"Dodano: {nazwa} (Dostawca: {wybrany_dostawca})")
+# --- SIDEBAR: WYSZUKIWARKA I FILTRY ---
+st.sidebar.header("🔍 Filtrowanie")
+search_query = st.sidebar.text_input("Szukaj produktu po nazwie...")
 
-elif choice == "Podgląd Magazynu":
-    st.subheader("📋 Lista produktów")
-    produkty = session.query(Produkt).all()
-    for p in produkty:
-        with st.expander(f"{p.nazwa} - {p.cena} PLN"):
-            st.write(f"**Dostawca:** {p.dostawca_rel.nazwa if p.dostawca_rel else 'Nie przypisano'}")
-            st.write(f"**Kategoria:** {p.kategoria_rel.nazwa if p.kategoria_rel else 'Brak'}")
-            st.write(f"**Stan:** {p.liczba} szt.")
-
-elif choice == "Konfiguracja (Kategorie/Dostawcy)":
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("### Zarządzaj Kategoriami")
-        nowa_kat = st.text_input("Nowa kategoria")
-        if st.button("Dodaj Kategorię"):
-            session.add(Kategoria(nazwa=nowa_kat))
-            session.commit()
-            st.rerun()
-
-    with col2:
-        st.write("### Zarządzaj Dostawcami")
-        nowy_dostawca = st.text_input("Nazwa kuriera (np. DHL, InPost)")
-        if st.button("Dodaj Dostawcę"):
-            session.add(Dostawca(nazwa=nowy_dostawca))
-            session.commit()
-            st.rerun()
+# --- POBIERANIE DANYCH ---
+all_prods = db.query(Produkt).all()
+df = pd.DataFrame([{
+    "ID": p.id,
+    "Nazwa": p.nazwa,
+    "Cena": float(p.cena),
+    "Ilość": p.liczba,
+    "Kategoria": p.kategoria_rel.nazwa if p.kategoria_rel else "Brak",
+    "Dostawca": p.dostawca_rel.nazwa if p.dostawca_rel else "Brak",
+    "Wartość": float(p.cena * p.liczba)
