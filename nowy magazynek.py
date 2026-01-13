@@ -164,3 +164,77 @@ elif choice == "Zarządzaj Kategoriami":
         session.add(Kategoria(nazwa=nazwa_k))
         session.commit()
         st.rerun()
+
+import streamlit as st
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from decimal import Decimal
+
+Base = declarative_base()
+
+# --- MODELE BAZY DANYCH ---
+
+class Kategoria(Base):
+    __tablename__ = 'kategorie'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nazwa = Column(String, nullable=False)
+    opis = Column(String)
+    produkty = relationship("Produkt", back_populates="kategoria_rel")
+
+class Dostawca(Base):
+    __tablename__ = 'dostawcy'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nazwa = Column(String, nullable=False, unique=True)
+    produkty = relationship("Produkt", back_populates="dostawca_rel")
+
+class Produkt(Base):
+    __tablename__ = 'produkty'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nazwa = Column(String, nullable=False)
+    liczba = Column(Integer, default=0)
+    cena = Column(Numeric(10, 2))
+    kategoria_id = Column(Integer, ForeignKey('kategorie.id'))
+    dostawca_id = Column(Integer, ForeignKey('dostawcy.id'))
+    
+    kategoria_rel = relationship("Kategoria", back_populates="produkty")
+    dostawca_rel = relationship("Dostawca", back_populates="produkty")
+
+# Połączenie i inicjalizacja bazy
+engine = create_engine('sqlite:///magazyn.db')
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# --- INTERFEJS STREAMLIT ---
+
+st.title("📦 System Zarządzania Magazynem")
+
+menu = ["Podgląd Magazynu", "Dodaj Produkt", "Konfiguracja (Kategorie/Dostawcy)"]
+choice = st.sidebar.selectbox("Nawigacja", menu)
+
+if choice == "Dodaj Produkt":
+    st.subheader("➕ Dodaj nowy przedmiot")
+    
+    kategorie = session.query(Kategoria).all()
+    dostawcy = session.query(Dostawca).all()
+    
+    if not kategorie or not dostawcy:
+        st.warning("⚠️ Skonfiguruj najpierw Kategorie i Dostawców w menu 'Konfiguracja'!")
+    else:
+        with st.form("form_produkt"):
+            nazwa = st.text_input("Nazwa produktu")
+            cena = st.number_input("Cena jednostkowa (PLN)", min_value=0.0, step=0.01)
+            ilosc = st.number_input("Ilość", min_value=1, step=1)
+            
+            # Wybór z bazy danych
+            kat_opcje = {k.nazwa: k.id for k in kategorie}
+            dost_opcje = {d.nazwa: d.id for d in dostawcy}
+            
+            wybrana_kat = st.selectbox("Kategoria", list(kat_opcje.keys()))
+            wybrany_dostawca = st.selectbox("Dostawca (Kurier)", list(dost_opcje.keys()))
+            
+            if st.form_submit_button("Zatwierdź"):
+                nowy = Produkt(
+                    nazwa=nazwa,
+                    cena
