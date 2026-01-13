@@ -235,6 +235,6 @@ if choice == "Dodaj Produkt":
             wybrany_dostawca = st.selectbox("Dostawca (Kurier)", list(dost_opcje.keys()))
             
             if st.form_submit_button("Zatwierdź"):
-                nowy = Produkt(
+                nowy = Produkt
                     nazwa=nazwa,
                     cena
