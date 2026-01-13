@@ -70,3 +70,5 @@ elif choice == "Lista Kategorii":
         st.write(f"**{k.nazwa}** (ID: {k.id})")
         st.caption(f"Opis: {k.opis}")
         st.divider()
+
+
