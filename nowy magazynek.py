@@ -10,18 +10,17 @@ st.set_page_config(page_title="Magazyn Pro", layout="wide")
 @st.cache_resource
 def polacz_z_baza():
     try:
-        # Pobieranie danych z Secrets
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
         return create_client(url, key)
     except Exception as e:
-        st.error(f"Problem z połączeniem: {e}")
+        st.error(f"Błąd konfiguracji Secrets: {e}")
         return None
 
 supabase = polacz_z_baza()
 
 # ==========================================
-# 2. FUNKCJE BAZY DANYCH (Z POPRAWNYMI WCIĘCIAMI)
+# 2. FUNKCJE BAZY DANYCH
 # ==========================================
 
 def pobierz_produkty():
@@ -35,12 +34,18 @@ def pobierz_kategorie():
     return res.data if res.data else []
 
 def dodaj_produkt(nazwa, liczba, kategoria_id):
-    """Wstawia nowy wiersz do tabeli produkty."""
-    supabase.table("produkty").insert({
-        "nazwa": nazwa,
-        "liczba": liczba,
-        "kategoria_id": kategoria_id
-    }).execute()
+    """Wstawia nowy produkt z obsługą błędów diagnostycznych."""
+    try:
+        supabase.table("produkty").insert({
+            "nazwa": nazwa,
+            "liczba": liczba,
+            "kategoria_id": kategoria_id
+        }).execute()
+        return True
+    except Exception as e:
+        # To pokaże Ci w aplikacji, dlaczego baza odrzuciła zapis
+        st.error(f"Błąd bazy danych: {e}")
+        return False
 
 def aktualizuj_stan(produkt_id, nowa_liczba):
     """Zmienia ilość lub usuwa produkt jeśli stan = 0."""
@@ -55,11 +60,11 @@ def aktualizuj_stan(produkt_id, nowa_liczba):
 st.title("📦 System Zarządzania Magazynem")
 st.markdown("---")
 
-# Pobieranie danych na start
+# Pobieranie danych
 produkty = pobierz_produkty()
 kategorie = pobierz_kategorie()
 
-# Mapy pomocnicze (ID <-> Nazwa)
+# Mapy pomocnicze
 mapa_kategorii = {k["nazwa"]: k["id"] for k in kategorie}
 mapa_id_na_nazwe = {k["id"]: k["nazwa"] for k in kategorie}
 
@@ -77,15 +82,16 @@ with st.form("form_dodaj", clear_on_submit=True):
         if kategorie:
             wybrana_kat = st.selectbox("Wybierz kategorię", list(mapa_kategorii.keys()))
         else:
-            st.error("Brak kategorii w bazie!")
+            st.warning("⚠️ Brak kategorii w bazie danych!")
             wybrana_kat = None
 
     przycisk_dodaj = st.form_submit_button("Dodaj do magazynu")
 
     if przycisk_dodaj and nazwa_wpisana and wybrana_kat:
-        dodaj_produkt(nazwa_wpisana, liczba_wpisana, mapa_kategorii[wybrana_kat])
-        st.success(f"Dodano: {nazwa_wpisana}")
-        st.rerun()
+        # WYWOŁANIE FUNKCJI Z DIAGNOSTYKĄ
+        if dodaj_produkt(nazwa_wpisana, liczba_wpisana, mapa_kategorii[wybrana_kat]):
+            st.success(f"Pomyślnie dodano: {nazwa_wpisana}")
+            st.rerun()
 
 st.markdown("---")
 
@@ -93,17 +99,13 @@ st.markdown("---")
 st.subheader("📋 Aktualny stan magazynu")
 
 if produkty:
-    # Przygotowanie tabeli do wyświetlenia
     df = pd.DataFrame(produkty)
     
-    # Dodanie kolumny z nazwą kategorii zamiast ID
     if "kategoria_id" in df.columns:
         df["kategoria"] = df["kategoria_id"].map(mapa_id_na_nazwe)
     
-    # Wyświetlenie tabeli
     st.dataframe(df[["nazwa", "liczba", "kategoria"]], use_container_width=True)
 
-    # --- FORMULARZ WYDANIA ---
     st.markdown("### ➖ Wydaj produkt")
     c_sel, c_num, c_btn = st.columns([2, 1, 1])
     
