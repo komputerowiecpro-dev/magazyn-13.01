@@ -141,4 +141,7 @@ if produkty:
             if ile_wydac > p_dane["liczba"]:
                 st.error("Nie ma tyle towaru!")
             else:
-                zmniejsz_ilosc_produktu(p_dane["id"], ile_wyd
+        st.info("Magazyn jest obecnie pusty.")
+
+        st.markdown("---")
+        st.caption("Aplikacja Magazynowa v1.0 | Streamlit + Supabase")
