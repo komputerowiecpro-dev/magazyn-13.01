@@ -1,2 +1,5 @@
 streamlit
 sqlalchemy
+streamlit
+pandas
+supabase
