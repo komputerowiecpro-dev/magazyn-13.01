@@ -5,80 +5,53 @@ import plotly.express as px
 import time
 
 # =============================
-# 1. KONFIGURACJA
+# 1. KONFIGURACJA I STYLIZACJA (Innowacyjny Wygląd)
 # =============================
-st.set_page_config(page_title="Biznes Pro 2026", layout="wide", page_icon="🛒")
+st.set_page_config(page_title="PRO Store 2026", layout="wide", page_icon="🚀")
+
+st.markdown("""
+    <style>
+    .stApp { background-color: #f4f7f6; }
+    .stButton>button { border-radius: 12px; transition: 0.3s; }
+    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .product-card { background: white; padding: 15px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
 
 @st.cache_resource
 def init_connection():
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"Błąd połączenia: {e}")
-        return None
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 supabase = init_connection()
 
 # =============================
-# 2. FUNKCJE BAZY DANYCH
+# 2. FUNKCJE LOGIKI BIZNESOWEJ
 # =============================
 
 def pobierz_saldo():
-    try:
-        res = supabase.table("finanse").select("saldo").eq("id", 1).execute()
-        return float(res.data[0]["saldo"]) if res.data else 0.0
-    except: return 0.0
-
-def aktualizuj_saldo(nowe_saldo):
-    try:
-        supabase.table("finanse").update({"saldo": nowe_saldo}).eq("id", 1).execute()
-        return True
-    except: return False
+    res = supabase.table("finanse").select("saldo").eq("id", 1).execute()
+    return float(res.data[0]["saldo"]) if res.data else 0.0
 
 def pobierz_produkty():
-    try:
-        res = supabase.table("produkty").select("*").execute()
-        return res.data if res.data else []
-    except: return []
+    res = supabase.table("produkty").select("*").order("nazwa").execute()
+    return res.data if res.data else []
 
-def pobierz_sprzedaz():
-    try:
-        res = supabase.table("sprzedaz").select("nazwa_produktu, ilosc").execute()
-        return res.data if res.data else []
-    except: return []
+def pobierz_srednia_ocen(p_id):
+    res = supabase.table("opinie").select("gwiazdki").eq("produkt_id", p_id).execute()
+    if res.data:
+        oceny = [o['gwiazdki'] for o in res.data]
+        return sum(oceny) / len(oceny), len(oceny)
+    return 0, 0
 
-def zapisz_sprzedaz(p_id, nazwa, ilosc):
-    try:
-        supabase.table("sprzedaz").insert({
-            "produkt_id": p_id,
-            "nazwa_produktu": nazwa,
-            "ilosc": ilosc
-        }).execute()
-    except: pass
-
-def usun_produkt_z_bazy(p_id):
-    try:
-        supabase.table("produkty").delete().eq("id", p_id).execute()
-        return True
-    except: return False
-
-def sprawdz_rabat(kod_tekst):
-    try:
-        res = supabase.table("kody_rabatowe").select("*").eq("kod", kod_tekst).execute()
-        return res.data[0]['znizka_procent'] if res.data else 0
-    except: return 0
-
-def kup_produkt(p_obj, ilosc_sztuk, cena_koncowa):
+def kup_produkt(p_obj, ilosc_sztuk, cena_final):
     obecne_saldo = pobierz_saldo()
-    calkowity_koszt = cena_koncowa * ilosc_sztuk
-    
-    if obecne_saldo >= calkowity_koszt:
-        aktualizuj_saldo(obecne_saldo - calkowity_koszt)
-        nowa_ilosc = p_obj['liczba'] - ilosc_sztuk
-        supabase.table("produkty").update({"liczba": nowa_ilosc}).eq("id", p_obj['id']).execute()
-        zapisz_sprzedaz(p_obj['id'], p_obj['nazwa'], ilosc_sztuk)
+    koszt = cena_final * ilosc_sztuk
+    if obecne_saldo >= koszt:
+        # Płatność i Magazyn
+        supabase.table("finanse").update({"saldo": obecne_saldo - koszt}).eq("id", 1).execute()
+        supabase.table("produkty").update({"liczba": p_obj['liczba'] - ilosc_sztuk}).eq("id", p_obj['id']).execute()
+        # Zapis sprzedazy do wykresów
+        supabase.table("sprzedaz").insert({"produkt_id": p_obj['id'], "nazwa_produktu": p_obj['nazwa'], "ilosc": ilosc_sztuk}).execute()
         return True
     return False
 
@@ -87,144 +60,117 @@ def kup_produkt(p_obj, ilosc_sztuk, cena_koncowa):
 # =============================
 if 'zalogowany' not in st.session_state:
     st.session_state.zalogowany = False
-    st.session_state.rola = None
 
 if not st.session_state.zalogowany:
-    st.title("🔐 Logowanie do systemu")
-    col_l1, col_l2 = st.columns(2)
-    user = col_l1.text_input("Użytkownik (admin/klient)")
-    pwd = col_l2.text_input("Hasło", type="password")
-    if st.button("Zaloguj się", use_container_width=True):
-        if user == "admin" and pwd == "admin123":
-            st.session_state.zalogowany = True
-            st.session_state.rola = "admin"
+    st.title("🔐 Witaj w PRO Store")
+    u = st.text_input("Login")
+    p = st.text_input("Hasło", type="password")
+    if st.button("Zaloguj"):
+        if u == "admin" and p == "admin123":
+            st.session_state.zalogowany, st.session_state.rola = True, "admin"
             st.rerun()
-        elif user == "klient" and pwd == "klient123":
-            st.session_state.zalogowany = True
-            st.session_state.rola = "klient"
+        elif u == "klient" and p == "klient123":
+            st.session_state.zalogowany, st.session_state.rola = True, "klient"
             st.rerun()
-        else:
-            st.error("Błędny login lub hasło!")
     st.stop()
 
 # =============================
-# 4. INTERFEJS UŻYTKOWNIKA
+# 4. INTERFEJS GŁÓWNY
 # =============================
-
 with st.sidebar:
-    st.title(f"Zalogowano jako: {st.session_state.rola.upper()}")
+    st.title("🛍️ Menu")
+    st.write(f"Zalogowany jako: **{st.session_state.rola.upper()}**")
     if st.button("Wyloguj"):
         st.session_state.zalogowany = False
         st.rerun()
     st.divider()
-    # Kody rabatowe (widoczne dla obu ról)
-    st.header("🎟️ Kod rabatowy")
-    kod_input = st.text_input("Wpisz kod tutaj")
-    znizka = sprawdz_rabat(kod_input)
-    if znizka > 0:
-        st.success(f"Aktywowano: -{znizka}%")
+    kod_rabatowy = st.text_input("Masz kod rabatowy?")
+    res_rabat = supabase.table("kody_rabatowe").select("znizka_procent").eq("kod", kod_rabatowy).execute()
+    znizka = res_rabat.data[0]['znizka_procent'] if res_rabat.data else 0
+    if znizka > 0: st.success(f"Rabat -{znizka}%!")
 
-# DEFINICJA ZAKŁADEK (Dla Admina wszystkie, dla Klienta tylko Sklep i BLIK)
 if st.session_state.rola == "admin":
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 STATYSTYKI", "📦 MAGAZYN", "🛍️ SKLEP", "💰 BLIK"])
+    tabs = st.tabs(["📈 STATYSTYKI", "📦 MAGAZYN", "🛒 SKLEP", "💸 BLIK"])
 else:
-    tab3, tab4 = st.tabs(["🛍️ SKLEP", "💰 DOŁADUJ KONTO"])
-    tab1, tab2 = None, None # Klient nie ma do nich dostępu
+    tabs = st.tabs(["🛒 SKLEP", "💸 DOŁADUJ KONTO"])
 
-# --- ZAKŁADKA 1: STATYSTYKI (ADMIN) ---
-if tab1:
-    with tab1:
-        st.title("📊 Statystyki Sprzedaży")
-        dane_s = pobierz_sprzedaz()
-        if dane_s:
-            df_s = pd.DataFrame(dane_s)
-            top_s = df_s.groupby("nazwa_produktu")["ilosc"].sum().reset_index()
-            
+# --- STATYSTYKI (ADMIN) ---
+if st.session_state.rola == "admin":
+    with tabs[0]:
+        st.title("📊 Wyniki Sprzedaży")
+        s_data = supabase.table("sprzedaz").select("*").execute().data
+        if s_data:
+            df = pd.DataFrame(s_data)
+            stats = df.groupby("nazwa_produktu")["ilosc"].sum().reset_index()
             c1, c2 = st.columns(2)
-            with c1:
-                fig_pie = px.pie(top_s, values='ilosc', names='nazwa_produktu', title="Co najlepiej się sprzedaje?", hole=0.3)
-                st.plotly_chart(fig_pie, use_container_width=True)
-            with c2:
-                fig_bar = px.bar(top_s, x='nazwa_produktu', y='ilosc', title="Ilość sprzedanych sztuk", color='ilosc')
-                st.plotly_chart(fig_bar, use_container_width=True)
-        else:
-            st.info("Brak danych o sprzedaży.")
+            c1.plotly_chart(px.pie(stats, values='ilosc', names='nazwa_produktu', title="Udział produktów", hole=0.4), use_container_width=True)
+            c2.plotly_chart(px.bar(stats, x='nazwa_produktu', y='ilosc', title="Ranking ilościowy", color='ilosc'), use_container_width=True)
+        else: st.info("Czekamy na pierwszą sprzedaż!")
 
-# --- ZAKŁADKA 2: MAGAZYN (ADMIN) ---
-if tab2:
-    with tab2:
+    with tabs[1]:
         st.title("📦 Zarządzanie Magazynem")
-        
-        with st.expander("➕ Dodaj nowy produkt"):
-            m_nazwa = st.text_input("Nazwa przedmiotu")
-            m_ilosc = st.number_input("Ilość", min_value=1)
-            m_cena = st.number_input("Cena (PLN)", min_value=0.0)
-            m_img = st.text_input("Link do zdjęcia (URL)")
-            if st.button("Zapisz w bazie"):
-                supabase.table("produkty").insert({"nazwa": m_nazwa, "liczba": m_ilosc, "cena": m_cena, "image_url": m_img}).execute()
-                st.success("Produkt dodany!")
+        with st.expander("Dodaj nowy produkt"):
+            n = st.text_input("Nazwa")
+            l = st.number_input("Ilość", 1)
+            c = st.number_input("Cena", 0.0)
+            img = st.text_input("URL Zdjęcia")
+            if st.button("Dodaj do bazy"):
+                supabase.table("produkty").insert({"nazwa": n, "liczba": l, "cena": c, "image_url": img}).execute()
                 st.rerun()
         
-        st.divider()
-        st.subheader("🗑️ Usuwanie produktów")
+        st.subheader("Aktualny Stan")
         prods = pobierz_produkty()
         if prods:
             df_p = pd.DataFrame(prods)
             st.dataframe(df_p[["id", "nazwa", "liczba", "cena"]], use_container_width=True)
-            opcje_del = {f"{p['nazwa']} (ID: {p['id']})": p['id'] for p in prods}
-            cel = st.selectbox("Wybierz do usunięcia", list(opcje_del.keys()))
-            if st.button("USUŃ NA ZAWSZE", type="primary"):
-                if usun_produkt_z_bazy(opcje_del[cel]):
-                    st.success("Usunięto.")
-                    st.rerun()
+            to_del = st.selectbox("Usuń produkt", [p['nazwa'] for p in prods])
+            if st.button("USUŃ PRODUKT", type="primary"):
+                p_id = [p['id'] for p in prods if p['nazwa'] == to_del][0]
+                supabase.table("produkty").delete().eq("id", p_id).execute()
+                st.rerun()
 
-# --- ZAKŁADKA 3: SKLEP (DLA WSZYSTKICH) ---
-with tab3:
-    st.title("🛍️ Sklep Online")
-    saldo = pobierz_saldo()
-    st.subheader(f"Twoje środki: :green[{saldo:.2f} PLN]")
-    
+# --- SKLEP (ADMIN I KLIENT) ---
+shop_tab = tabs[2] if st.session_state.rola == "admin" else tabs[0]
+with shop_tab:
+    st.title("🛒 Nasza Oferta")
+    st.subheader(f"Twoje saldo: {pobierz_saldo():.2f} PLN")
     produkty = pobierz_produkty()
     if produkty:
         cols = st.columns(3)
-        for idx, p in enumerate(produkty):
-            if p.get('liczba', 0) > 0:
-                with cols[idx % 3]:
+        for i, p in enumerate(produkty):
+            if p['liczba'] > 0:
+                with cols[i % 3]:
                     with st.container(border=True):
-                        st.image(p.get('image_url') or "https://via.placeholder.com/150", use_container_width=True)
+                        st.image(p.get('image_url') or "https://via.placeholder.com/150")
                         st.subheader(p['nazwa'])
-                        cena_org = float(p.get('cena') or 0)
-                        cena_final = cena_org * (1 - znizka/100)
                         
-                        if znizka > 0:
-                            st.write(f"Cena: ~~{cena_org}~~ **{cena_final:.2f} PLN**")
-                        else:
-                            st.write(f"Cena: **{cena_org} PLN**")
+                        # Gwiazdki
+                        sr, licz = pobierz_srednia_ocen(p['id'])
+                        st.write(f"{'⭐' * int(sr)}{'⚪' * (5-int(sr))} ({licz} opinii)")
                         
-                        ile = st.number_input(f"Sztuk", min_value=1, max_value=int(p['liczba']), key=f"buy_{p['id']}")
-                        if st.button(f"Kup {p['nazwa']}", key=f"btn_{p['id']}", use_container_width=True):
-                            if kup_produkt(p, ile, cena_final):
-                                st.balloons()
-                                st.success("Kupiono!")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("Brak środków!")
+                        cena_final = float(p['cena'] or 0) * (1 - znizka/100)
+                        st.write(f"Cena: **{cena_final:.2f} PLN**")
+                        
+                        with st.expander("Oceń"):
+                            oc = st.slider("Gwiazdki", 1, 5, 5, key=f"s_{p['id']}")
+                            kom = st.text_input("Komentarz", key=f"c_{p['id']}")
+                            if st.button("Wyślij", key=f"b_{p['id']}"):
+                                supabase.table("opinie").insert({"produkt_id": p['id'], "gwiazdki": oc, "komentarz": kom}).execute()
+                                st.toast("Dziękujemy!")
+                                time.sleep(1); st.rerun()
 
-# --- ZAKŁADKA 4: BLIK (DLA WSZYSTKICH) ---
-with tab4:
-    st.title("💰 Doładowanie Portfela")
-    with st.container(border=True):
-        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Blik_logo.svg/1200px-Blik_logo.svg.png", width=100)
-        kwota = st.number_input("Kwota (PLN)", min_value=1.0)
-        kod = st.text_input("Kod BLIK (6 cyfr)", max_chars=6)
-        if st.button("WPŁAĆ TERAZ", use_container_width=True):
-            if len(kod) == 6 and kod.isdigit():
-                with st.spinner("Łączenie z bankiem..."):
-                    time.sleep(2)
-                    aktualizuj_saldo(pobierz_saldo() + kwota)
-                    st.success("Środki dodane!")
-                    time.sleep(1)
-                    st.rerun()
-            else:
-                st.error("Niepoprawny kod BLIK!")
+                        if st.button(f"Kupuję", key=f"k_{p['id']}", use_container_width=True):
+                            if kup_produkt(p, 1, cena_final):
+                                st.balloons(); st.success("Kupiono!"); time.sleep(1); st.rerun()
+                            else: st.error("Brak środków!")
+
+# --- BLIK / DOŁADOWANIE ---
+blik_tab = tabs[3] if st.session_state.rola == "admin" else tabs[1]
+with blik_tab:
+    st.title("💰 Doładuj Portfel")
+    kwota = st.number_input("Kwota PLN", 1.0)
+    kod = st.text_input("Kod BLIK (6 cyfr)", max_chars=6)
+    if st.button("WPŁAĆ"):
+        if len(kod) == 6:
+            supabase.table("finanse").update({"saldo": pobierz_saldo() + kwota}).eq("id", 1).execute()
+            st.success("Wpłacono!"); time.sleep(1); st.rerun()
